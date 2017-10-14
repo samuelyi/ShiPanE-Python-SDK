@@ -3,7 +3,10 @@
 import codecs
 import collections
 import distutils.util
+import errno
 import logging
+import logging.config
+import logging.handlers
 import os
 import os.path
 import time
@@ -26,7 +29,6 @@ from shipane_sdk.uqer.client import UqerClient
 
 class Scheduler(object):
     def __init__(self):
-        logging.basicConfig(level=logging.INFO, format='%(asctime)-15s %(levelname)-6s %(message)s')
         self._logger = logging.getLogger()
 
         config_path = os.path.join(os.path.expanduser('~'), '.shipane_sdk', 'config', 'scheduler.ini')
@@ -45,6 +47,7 @@ class Scheduler(object):
         self.__add_job(self.__create_rice_quant_following_job())
         self.__add_job(self.__create_uqer_following_job())
         self.__add_job(self.__create_guorn_sync_job())
+        self.__add_job(self.__create_join_quant_sync_job())
 
         self._scheduler.start()
         print('Press Ctrl+{0} to exit'.format('Break' if os.name == 'nt' else 'C'))
@@ -111,6 +114,14 @@ class Scheduler(object):
         return OnlineQuantSyncJob(self._client, quant_client, client_aliases, '{}SyncJob'.format(section),
                                   **options)
 
+    def __create_join_quant_sync_job(self):
+        section = 'JoinQuantArena'
+        options = self.__build_options(section)
+        client_aliases = self.__filter_client_aliases(section)
+        quant_client = JoinQuantClient(**options)
+        return OnlineQuantSyncJob(self._client, quant_client, client_aliases, '{}SyncJob'.format(section),
+                                  **options)
+
     def __build_options(self, section):
         if not self._config.has_section(section):
             return dict()
@@ -128,3 +139,22 @@ class Scheduler(object):
                           filter(None, self._config.get(section, 'clients').split(','))]
         return collections.OrderedDict(
             (client_alias, all_client_aliases[client_alias]) for client_alias in client_aliases)
+
+
+class FileHandler(logging.handlers.TimedRotatingFileHandler):
+    def __init__(self, fileName):
+        path = os.path.join(os.path.expanduser('~'), 'AppData', 'Local', '爱股网', '实盘♠易')
+        try:
+            os.makedirs(path)
+        except OSError as e:
+            if e.errno == errno.EEXIST and os.path.isdir(path):
+                pass
+            else:
+                raise
+        super(FileHandler, self).__init__(path + "/" + fileName)
+
+
+def start():
+    logging.config.fileConfig(os.path.join(os.path.expanduser('~'), '.shipane_sdk', 'config', 'logging.ini'))
+
+    Scheduler().start()
